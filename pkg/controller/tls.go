@@ -54,7 +54,10 @@ func (c *Controller) waitForCertSecretReady(serviceName string, secretName strin
 				klog.Infof("Waiting for the %s certificates secret to be issued", serviceName)
 				time.Sleep(time.Second * 10)
 			} else {
+				// не-NotFound (API-server недоступен и т.п.): без sleep
+				// цикл крутится мгновенными ретраями на 100% ядра.
 				klog.Infof(err.Error())
+				time.Sleep(time.Second * 10)
 			}
 		} else {
 			publicCertPath, publicKeyPath = c.writeCertSecretToFile(tlsCertSecret, serviceName)
@@ -135,6 +138,10 @@ func (c *Controller) generateTLSCertificateForService(serviceName, secretName, d
 						klog.Infof(err.Error())
 					}
 				}
+			} else {
+				// не-NotFound (API-server недоступен и т.п.): раньше был
+				// сквозной проход без sleep — мгновенные ретраи на 100% ядра.
+				time.Sleep(time.Second * 10)
 			}
 		} else {
 			publicCertPath, publicKeyPath = c.writeCertSecretToFile(tlsCertSecret, serviceName)

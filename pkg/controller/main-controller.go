@@ -468,13 +468,22 @@ func leaderRun(ctx context.Context, c *Controller, threadiness int, stopCh <-cha
 				klog.Errorf("STS API Server stopped: %v, going to restart", oerr.Err)
 				go c.startSTSAPIServer(ctx, notificationChannel)
 			}
-		case err := <-upgradeServerChannel:
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		case err, ok := <-upgradeServerChannel:
+			if !ok {
+				// Upgrade-сервер остановлен через Shutdown: это потеря
+				// лидерства (OnStoppedLeading -> Stop), роль лидера
+				// кончилась — leaderRun обязан выйти. Приём из закрытого
+				// канала всегда готов, и continue здесь крутил select
+				// на 100% ядра молча и навсегда: stopCh при потере
+				// лидерства не закрывается (upstream #2450/#2458,
+				// воспроизведено и снят дамп горутин 12.11).
+				klog.Infof("Upgrade server channel closed, exiting leaderRun")
+				return
+			}
+			if !errors.Is(err, http.ErrServerClosed) {
 				klog.Errorf("Upgrade Server stopped: %v, going to restart", err)
 				upgradeServerChannel = c.startUpgradeServer()
 			}
-			// webserver was instructed to stop, do not attempt to restart
-			continue
 		case <-stopCh:
 			return
 		}
