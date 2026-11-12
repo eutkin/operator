@@ -468,13 +468,21 @@ func leaderRun(ctx context.Context, c *Controller, threadiness int, notification
 				klog.Errorf("STS API Server stopped: %v, going to restart", oerr.Err)
 				go c.startSTSAPIServer(ctx, notificationChannel)
 			}
-		case err := <-upgradeServerChannel:
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		case err, ok := <-upgradeServerChannel:
+			if !ok {
+				// The upgrade server was shut down via Shutdown(), which
+				// closes this channel. Receiving from a closed channel is
+				// always ready, so 'continue' here busy-spins the select
+				// at 100% of a core, silently and forever (upstream
+				// #2450/#2458: observed on v7.1.1, the last release).
+				// The leader role has ended, so leaderRun must exit.
+				klog.Infof("Upgrade server channel closed, exiting leaderRun")
+				return
+			}
+			if !errors.Is(err, http.ErrServerClosed) {
 				klog.Errorf("Upgrade Server stopped: %v, going to restart", err)
 				upgradeServerChannel = c.startUpgradeServer()
 			}
-			// webserver was instructed to stop, do not attempt to restart
-			continue
 		case <-ctx.Done():
 			return
 		}
